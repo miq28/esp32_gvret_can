@@ -91,16 +91,40 @@ void SystemManager::loop()
     }
 
     // RX from host
-    int rxBudget = 32;
+    // int rxBudget = 32;
 
-    while (rxBudget-- && wifi.available())
+    // while (rxBudget-- && wifi.available())
+    // {
+    //     int b = wifi.read();
+    //     if (b < 0)
+    //         break;
+
+    //     gvret.processByte((uint8_t)b);
+
+    //     CANFrame out;
+    //     if (gvret.buildFrame(out))
+    //     {
+    //         LOGI("CAN TX id=%X len=%d", out.id, out.length);
+    //         driver.send(out);
+    //     }
+    // }
+
+    while (Serial.available())
     {
-        int b = wifi.read();
-        if (b < 0)
-            break;
+        uint8_t b = Serial.read();
 
-        gvret.processByte((uint8_t)b);
+        gvret.processByte(b);
 
+        // ===== handle commands immediately =====
+        uint8_t resp[64];
+        size_t respLen = 0;
+
+        if (gvret.handleCommand(resp, respLen))
+        {
+            Serial.write(resp, respLen); // 🔴 DO NOT BUFFER
+        }
+
+        // ===== CAN TX from host =====
         CANFrame out;
         if (gvret.buildFrame(out))
         {

@@ -5,72 +5,126 @@
 
 void GVRET::processByte(uint8_t b)
 {
+    // enable binary mode
+    if (b == 0xE7 && state == WAIT_START)
+    {
+        binaryMode = true;
+        return;
+    }
+
     switch (state)
     {
     case WAIT_START:
         if (b == 0xF1)
+            state = GET_COMMAND;
+        break;
+
+    case GET_COMMAND:
+        cmd = b;
+
+        if (cmd == 0x00) // build CAN frame
         {
-            state = READ_CMD;
+            buildIdx = 0;
+            state = BUILD_FRAME;
+        }
+        else
+        {
+            state = WAIT_START;
         }
         break;
 
-    case READ_CMD:
-        cmd = b;
-        state = READ_LEN;
-        break;
+    case BUILD_FRAME:
+        buildBuf[buildIdx++] = b;
 
-    case READ_LEN:
-        len = b;
-        idx = 0;
-        state = READ_DATA;
-        break;
-
-    case READ_DATA:
-        buffer[idx++] = b;
-        if (idx >= len)
+        // need at least ID(4) + bus(1) + len(1)
+        if (buildIdx >= 6)
         {
-            frameReady = true;
-            state = WAIT_START;
+            uint8_t len = buildBuf[5] & 0x0F;
+
+            if (buildIdx >= (6 + len))
+            {
+                // frame complete
+                state = WAIT_START;
+            }
         }
         break;
     }
 }
 
-bool GVRET::buildFrame(CANFrame& out)
+bool GVRET::handleCommand(uint8_t *outBuf, size_t &outLen)
 {
-    if (!frameReady) return false;
-    frameReady = false;
+    outLen = 0;
 
-    if (cmd != 0) return false; // only CAN frame
+    switch (cmd)
+    {
+    // ===== KEEPALIVE =====
+    case 0x09:
+        outBuf[outLen++] = 0xF1;
+        outBuf[outLen++] = 0x09;
+        outBuf[outLen++] = 0xDE;
+        outBuf[outLen++] = 0xAD;
+        return true;
 
-    uint32_t id =
-        buffer[0] |
-        (buffer[1] << 8) |
-        (buffer[2] << 16) |
-        (buffer[3] << 24);
+    // ===== DEVICE INFO =====
+    case 0x07:
+        outBuf[outLen++] = 0xF1;
+        outBuf[outLen++] = 0x07;
 
-    out.extended = (id & (1UL << 31));
-    out.id = id & 0x1FFFFFFF;
+        outBuf[outLen++] = 0x01; // build LSB
+        outBuf[outLen++] = 0x00; // build MSB
+        outBuf[outLen++] = 0x01; // EEPROM
+        outBuf[outLen++] = 0x00;
+        outBuf[outLen++] = 0x00;
+        outBuf[outLen++] = 0x00;
+        return true;
 
-    out.length = buffer[4] & 0x0F;
+    // ===== GET CAN CONFIG =====
+    case 0x06:
+        outBuf[outLen++] = 0xF1;
+        outBuf[outLen++] = 0x06;
 
-    for (int i = 0; i < out.length; i++)
-        out.data[i] = buffer[5 + i];
+        outBuf[outLen++] = 0x01; // enabled
+        outBuf[outLen++] = 0x20;
+        outBuf[outLen++] = 0xA1;
+        outBuf[outLen++] = 0x07;
+        outBuf[outLen++] = 0x00;
 
-    out.rtr = false;
-    out.timestamp = micros();
+        outBuf[outLen++] = 0x00;
+        outBuf[outLen++] = 0x00;
+        outBuf[outLen++] = 0x00;
+        outBuf[outLen++] = 0x00;
+        outBuf[outLen++] = 0x00;
+        return true;
 
-    return true;
+    // ===== TIME SYNC =====
+    case 0x01:
+    {
+        uint32_t t = micros();
+
+        outBuf[outLen++] = 0xF1;
+        outBuf[outLen++] = 0x01;
+
+        outBuf[outLen++] = t;
+        outBuf[outLen++] = t >> 8;
+        outBuf[outLen++] = t >> 16;
+        outBuf[outLen++] = t >> 24;
+        return true;
+    }
+
+    default:
+        return false;
+    }
 }
 
-size_t GVRET::encodeFrame(const CANFrame& f, uint8_t* out)
+size_t GVRET::encodeFrame(const CANFrame &f, uint8_t *out)
 {
     size_t idx = 0;
 
     out[idx++] = 0xF1;
-    out[idx++] = 0;
+    out[idx++] = 0x00;
 
     uint32_t t = f.timestamp;
+
     out[idx++] = t;
     out[idx++] = t >> 8;
     out[idx++] = t >> 16;
@@ -83,7 +137,7 @@ size_t GVRET::encodeFrame(const CANFrame& f, uint8_t* out)
     out[idx++] = id >> 16;
     out[idx++] = id >> 24;
 
-    out[idx++] = f.length;
+    out[idx++] = (0 << 4) | (f.length & 0x0F);
 
     for (int i = 0; i < f.length; i++)
         out[idx++] = f.data[i];
@@ -91,4 +145,49 @@ size_t GVRET::encodeFrame(const CANFrame& f, uint8_t* out)
     out[idx++] = 0;
 
     return idx;
+}
+
+bool GVRET::buildFrame(CANFrame &frame)
+{
+    // only valid after BUILD_FRAME state filled buffer
+    if (cmd != 0x00)
+        return false;
+
+    // minimal safety
+    if (buildIdx < 6)
+        return false;
+
+    // ===== parse ID =====
+    uint32_t id = 0;
+    id |= buildBuf[0];
+    id |= (buildBuf[1] << 8);
+    id |= (buildBuf[2] << 16);
+    id |= (buildBuf[3] << 24);
+
+    frame.extended = (id & (1UL << 31)) != 0;
+    frame.id = id & 0x1FFFFFFF;
+
+    // ===== bus (ignored for now) =====
+    uint8_t bus = buildBuf[4];
+    (void)bus;
+
+    // ===== length =====
+    frame.length = buildBuf[5] & 0x0F;
+
+    if (frame.length > 8)
+        frame.length = 8;
+
+    // ===== data =====
+    for (uint8_t i = 0; i < frame.length; i++)
+    {
+        frame.data[i] = buildBuf[6 + i];
+    }
+
+    frame.timestamp = micros();
+    frame.rtr = false;
+
+    // reset buffer for next frame
+    buildIdx = 0;
+
+    return true;
 }

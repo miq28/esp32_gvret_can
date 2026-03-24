@@ -1,30 +1,31 @@
 // FILE: gvret.h
 #pragma once
-#include <cstddef>
+#include <Arduino.h>
 #include "types.h"
 
 class GVRET
 {
 public:
     void processByte(uint8_t b);
-    bool buildFrame(CANFrame& out);
+
+    bool handleCommand(uint8_t* outBuf, size_t& outLen);
+    bool buildFrame(CANFrame& frame);
 
     size_t encodeFrame(const CANFrame& f, uint8_t* out);
 
 private:
-    enum State {
+    enum State
+    {
         WAIT_START,
-        READ_CMD,
-        READ_LEN,
-        READ_DATA
+        GET_COMMAND,
+        BUILD_FRAME
     };
 
     State state = WAIT_START;
 
-    uint8_t cmd;
-    uint8_t len;
-    uint8_t idx;
+    bool binaryMode = false;
+    uint8_t cmd = 0;
 
-    uint8_t buffer[32];
-    bool frameReady = false;
+    uint8_t buildBuf[32];
+    uint8_t buildIdx = 0;
 };
