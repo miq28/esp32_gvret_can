@@ -8,8 +8,8 @@
 bool CANDriver::begin(uint32_t baud, bool listenOnly)
 {
     twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(
-        (gpio_num_t)BoardPins::CAN_RX,
         (gpio_num_t)BoardPins::CAN_TX,
+        (gpio_num_t)BoardPins::CAN_RX,
         listenOnly ? TWAI_MODE_LISTEN_ONLY : TWAI_MODE_NORMAL
     );
 

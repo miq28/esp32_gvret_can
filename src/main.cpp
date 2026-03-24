@@ -12,9 +12,16 @@ void setup()
     RS485.begin(1000000);
     Serial.begin(1000000);
 
-    ledInit(180);
+    ledInit(50);
 
-    LOGI("BOOT");
+    ledSet(255, 0, 0); // RED
+    delay(500);
+    ledSet(0, 255, 0); // GREEN
+    delay(500);
+    ledSet(0, 0, 255); // BLUE
+    delay(500);
+
+    LOGI("BOOT OK");
 
     sys.setup();
 }

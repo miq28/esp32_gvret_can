@@ -1,15 +1,66 @@
 // FILE: gvret.cpp
-#include <cstddef>
+#include <Arduino.h>
 #include "gvret.h"
+#include <cstring>
 
 void GVRET::processByte(uint8_t b)
 {
-    // placeholder (next step we plug full parser)
+    switch (state)
+    {
+    case WAIT_START:
+        if (b == 0xF1)
+        {
+            state = READ_CMD;
+        }
+        break;
+
+    case READ_CMD:
+        cmd = b;
+        state = READ_LEN;
+        break;
+
+    case READ_LEN:
+        len = b;
+        idx = 0;
+        state = READ_DATA;
+        break;
+
+    case READ_DATA:
+        buffer[idx++] = b;
+        if (idx >= len)
+        {
+            frameReady = true;
+            state = WAIT_START;
+        }
+        break;
+    }
 }
 
 bool GVRET::buildFrame(CANFrame& out)
 {
-    return false;
+    if (!frameReady) return false;
+    frameReady = false;
+
+    if (cmd != 0) return false; // only CAN frame
+
+    uint32_t id =
+        buffer[0] |
+        (buffer[1] << 8) |
+        (buffer[2] << 16) |
+        (buffer[3] << 24);
+
+    out.extended = (id & (1UL << 31));
+    out.id = id & 0x1FFFFFFF;
+
+    out.length = buffer[4] & 0x0F;
+
+    for (int i = 0; i < out.length; i++)
+        out.data[i] = buffer[5 + i];
+
+    out.rtr = false;
+    out.timestamp = micros();
+
+    return true;
 }
 
 size_t GVRET::encodeFrame(const CANFrame& f, uint8_t* out)
