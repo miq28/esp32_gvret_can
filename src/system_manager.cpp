@@ -7,9 +7,17 @@
 static WiFiManager wifi;
 static uint8_t txBuf[64];
 
+// ===== callback =====
+static void logTwai(const char *msg)
+{
+    LOGI("%s", msg); // routed to RS485 via debug.h
+}
+
 void SystemManager::setup()
 {
     driver.begin(500000, false);
+
+    driver.setEventCallback(logTwai);
 
     // wifi.setup("esp32ret_XXXXXX", "12345678", true); // AP mode
     wifi.setup("galaxi", "n1n4iqb4l", false); // STA mode
@@ -22,11 +30,19 @@ void SystemManager::loop()
     wifi.loop();
 
     // CAN RX → ring
-    while (driver.receive(f))
+    int drainBudget = 64; // tune later
+
+    while (drainBudget--)
     {
-        LOGI("CAN RX id=%X len=%d", f.id, f.length);
+        if (!driver.receive(f))
+            break;
+
+        // LOGI("CAN RX id=%X len=%d", f.id, f.length);
+
         if (!rxRing.push(f))
+        {
             LOGE("RX overflow");
+        }
     }
 
     // ring → GVRET → transport
@@ -51,4 +67,7 @@ void SystemManager::loop()
             driver.send(out);
         }
     }
+
+    // ===== DEBUG STATUS (lightweight, safe every loop) =====
+    driver.debugStatus();
 }

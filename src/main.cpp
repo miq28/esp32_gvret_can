@@ -13,13 +13,7 @@ void setup()
     Serial.begin(1000000);
 
     ledInit(50);
-
-    ledSet(255, 0, 0); // RED
-    delay(500);
-    ledSet(0, 255, 0); // GREEN
-    delay(500);
-    ledSet(0, 0, 255); // BLUE
-    delay(500);
+    ledSet(0, 0, 0); // RED
 
     LOGI("BOOT OK");
 
@@ -29,5 +23,6 @@ void setup()
 void loop()
 {
     sys.loop();
+
     ledTask();
 }

@@ -8,12 +8,8 @@
 
 static uint8_t ledBrightness = 255;
 
-static uint32_t canFrameCounter = 0;
-static uint32_t lastFpsTime = 0;
-static uint32_t fps = 0;
-
-static uint32_t lastBlinkToggle = 0;
-static bool ledState = false;
+static uint32_t canActivityCount = 0;
+static uint32_t lastUpdate = 0;
 
 static uint32_t ledColor = 0;
 static uint32_t lastCanBlink = 0;
@@ -86,7 +82,7 @@ void ledSet(uint8_t r, uint8_t g, uint8_t b)
 
 void ledCanActivity()
 {
-    canFrameCounter++;
+    canActivityCount++;
 }
 
 void ledWifiConnected(bool state)
@@ -98,21 +94,16 @@ void ledTask()
 {
     uint32_t now = millis();
 
-    // update FPS every 200 ms
-    if (now - lastFpsTime >= 200)
+    if (now - lastUpdate > 50) // update every 50ms
     {
-        fps = canFrameCounter * 5; // scale to per second
-        canFrameCounter = 0;
-        lastFpsTime = now;
-    }
+        lastUpdate = now;
 
-    // map fps → blink interval (ms)
-    uint32_t interval;
-
-    if (fps == 0)
-    {
-        // no CAN
-        if (wifiConnected)
+        if (canActivityCount > 0)
+        {
+            ledSet(0, 50, 0); // green pulse
+            canActivityCount = 0;
+        }
+        else if (wifiConnected)
         {
             ledSet(0, 0, 50); // blue
         }
@@ -120,26 +111,5 @@ void ledTask()
         {
             ledSet(50, 0, 0); // red
         }
-        return;
-    }
-
-    // clamp fps range
-    if (fps > 4000) fps = 4000;
-
-    // map: 0 fps → 500ms, 4000 fps → 50ms
-    interval = 500 - (fps * 450 / 4000);
-
-    if (interval < 50) interval = 50;
-
-    // toggle LED
-    if (now - lastBlinkToggle >= interval)
-    {
-        lastBlinkToggle = now;
-        ledState = !ledState;
-
-        if (ledState)
-            ledSet(0, 50, 0); // ON
-        else
-            ledSet(0, 0, 0);  // OFF
     }
 }
