@@ -28,4 +28,6 @@ private:
 
     uint8_t buildBuf[32];
     uint8_t buildIdx = 0;
+
+    bool commandReady = false;   // ✅ CORRECT PLACE
 };

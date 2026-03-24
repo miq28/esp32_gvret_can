@@ -21,11 +21,13 @@ void GVRET::processByte(uint8_t b)
 
     case GET_COMMAND:
         cmd = b;
+        commandReady = true;
 
-        if (cmd == 0x00) // build CAN frame
+        if (cmd == 0x00)
         {
             buildIdx = 0;
             state = BUILD_FRAME;
+            commandReady = false;
         }
         else
         {
@@ -53,6 +55,11 @@ void GVRET::processByte(uint8_t b)
 
 bool GVRET::handleCommand(uint8_t *outBuf, size_t &outLen)
 {
+    if (!commandReady)
+        return false;
+
+    commandReady = false;
+
     outLen = 0;
 
     switch (cmd)

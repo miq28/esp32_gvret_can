@@ -31,15 +31,11 @@ void SystemManager::loop()
 
     wifi.loop();
 
-    // CAN RX → ring
-    // int drainBudget = 64; // tune later
-    // while (drainBudget--){}
+    // ===== CAN RX → ring =====
     while (true)
     {
         if (!driver.receive(f))
             break;
-
-        // LOGI("CAN RX id=%X len=%d", f.id, f.length);
 
         if (!rxRing.push(f))
         {
@@ -47,14 +43,7 @@ void SystemManager::loop()
         }
     }
 
-    // ring → GVRET → transport
-    while (rxRing.pop(f))
-    {
-        size_t len = gvret.encodeFrame(f, txBuf);
-        wifi.send(txBuf, len);
-    }
-
-    // ENCODE → TX RING (NOT DIRECT SEND)
+    // ===== ring → GVRET → txRing =====
     uint8_t tempBuf[64];
 
     int encodeBudget = 64;
@@ -73,7 +62,7 @@ void SystemManager::loop()
         }
     }
 
-    // SEND (LIMITED, NON-BLOCKING STYLE)
+    // ===== SEND (non-blocking style) =====
     uint8_t sendBuf[256];
 
     size_t toSend = txRing.pop(sendBuf, sizeof(sendBuf));
@@ -90,41 +79,21 @@ void SystemManager::loop()
         }
     }
 
-    // RX from host
-    // int rxBudget = 32;
-
-    // while (rxBudget-- && wifi.available())
-    // {
-    //     int b = wifi.read();
-    //     if (b < 0)
-    //         break;
-
-    //     gvret.processByte((uint8_t)b);
-
-    //     CANFrame out;
-    //     if (gvret.buildFrame(out))
-    //     {
-    //         LOGI("CAN TX id=%X len=%d", out.id, out.length);
-    //         driver.send(out);
-    //     }
-    // }
-
+    // ===== RX from host (SERIAL ONLY FOR NOW) =====
     while (Serial.available())
     {
         uint8_t b = Serial.read();
 
         gvret.processByte(b);
 
-        // ===== handle commands immediately =====
         uint8_t resp[64];
         size_t respLen = 0;
 
         if (gvret.handleCommand(resp, respLen))
         {
-            Serial.write(resp, respLen); // 🔴 DO NOT BUFFER
+            Serial.write(resp, respLen); // immediate
         }
 
-        // ===== CAN TX from host =====
         CANFrame out;
         if (gvret.buildFrame(out))
         {
@@ -133,6 +102,6 @@ void SystemManager::loop()
         }
     }
 
-    // ===== DEBUG STATUS (lightweight, safe every loop) =====
+    // ===== DEBUG =====
     driver.debugStatus();
 }
