@@ -4,6 +4,8 @@
 #include "wifi_manager.h"
 #include "debug.h"
 
+ByteRing<8192> txRing;
+
 static WiFiManager wifi;
 static uint8_t txBuf[64];
 
@@ -30,9 +32,9 @@ void SystemManager::loop()
     wifi.loop();
 
     // CAN RX → ring
-    int drainBudget = 64; // tune later
-
-    while (drainBudget--)
+    // int drainBudget = 64; // tune later
+    // while (drainBudget--){}
+    while (true)
     {
         if (!driver.receive(f))
             break;
@@ -52,8 +54,46 @@ void SystemManager::loop()
         wifi.send(txBuf, len);
     }
 
+    // ENCODE → TX RING (NOT DIRECT SEND)
+    uint8_t tempBuf[64];
+
+    int encodeBudget = 64;
+
+    while (encodeBudget-- && rxRing.pop(f))
+    {
+        size_t len = gvret.encodeFrame(f, tempBuf);
+
+        for (size_t i = 0; i < len; i++)
+        {
+            if (!txRing.push(tempBuf[i]))
+            {
+                LOGE("TX overflow");
+                break;
+            }
+        }
+    }
+
+    // SEND (LIMITED, NON-BLOCKING STYLE)
+    uint8_t sendBuf[256];
+
+    size_t toSend = txRing.pop(sendBuf, sizeof(sendBuf));
+
+    if (toSend > 0)
+    {
+        if (wifi.connected())
+        {
+            wifi.send(sendBuf, toSend);
+        }
+        else
+        {
+            Serial.write(sendBuf, toSend);
+        }
+    }
+
     // RX from host
-    while (wifi.available())
+    int rxBudget = 32;
+
+    while (rxBudget-- && wifi.available())
     {
         int b = wifi.read();
         if (b < 0)
@@ -64,6 +104,7 @@ void SystemManager::loop()
         CANFrame out;
         if (gvret.buildFrame(out))
         {
+            LOGI("CAN TX id=%X len=%d", out.id, out.length);
             driver.send(out);
         }
     }
